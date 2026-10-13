@@ -209,6 +209,26 @@ object DownloadsRepository {
         }
     }
 
+    /** Status of the (single) download tracked for a logical episode, if any. */
+    fun statusForEpisode(
+        parentMetaId: String,
+        seasonNumber: Int,
+        episodeNumber: Int,
+    ): DownloadStatus? {
+        ensureLoaded()
+        val normalizedParentMetaId = parentMetaId.trim()
+        return _uiState.value.items.firstOrNull { item ->
+            item.parentMetaId == normalizedParentMetaId &&
+                item.seasonNumber == seasonNumber &&
+                item.episodeNumber == episodeNumber
+        }?.status
+    }
+
+    fun activeDownloadCount(): Int {
+        ensureLoaded()
+        return _uiState.value.items.count { it.status == DownloadStatus.Downloading }
+    }
+
     fun pauseDownload(downloadId: String) {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
@@ -564,7 +584,7 @@ private fun String.fileExtensionFromUrl(): String {
     }
 }
 
-private fun String.isSupportedDownloadUrl(): Boolean {
+internal fun String.isSupportedDownloadUrl(): Boolean {
     val normalized = trim().lowercase()
     if (normalized.startsWith("magnet:")) return false
     if (normalized.endsWith(".m3u8") || normalized.contains(".m3u8?")) return false

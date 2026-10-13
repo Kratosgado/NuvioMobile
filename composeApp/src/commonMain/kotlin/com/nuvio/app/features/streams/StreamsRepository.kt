@@ -9,6 +9,7 @@ import com.nuvio.app.features.addons.fetchAddonResponseText
 import com.nuvio.app.features.debrid.DirectDebridStreamPreparer
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DebridStreamPresentation
+import com.nuvio.app.features.debrid.DebridStreamResolution
 import com.nuvio.app.features.debrid.LocalDebridAvailabilityService
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -603,7 +604,20 @@ object StreamsRepository {
     }
 
     fun selectFilter(addonId: String?) {
-        _uiState.update { it.copy(selectedFilter = addonId) }
+        _uiState.update { state ->
+            // Drop a resolution filter that no longer has any matching stream under the new addon
+            // filter, so the user isn't left staring at an empty list.
+            val next = state.copy(selectedFilter = addonId)
+            if (next.resolutionFilter != null && next.resolutionFilter !in next.availableResolutions) {
+                next.copy(resolutionFilter = null)
+            } else {
+                next
+            }
+        }
+    }
+
+    fun selectResolutionFilter(resolution: DebridStreamResolution?) {
+        _uiState.update { it.copy(resolutionFilter = resolution) }
     }
 
     fun consumeAutoPlay() {

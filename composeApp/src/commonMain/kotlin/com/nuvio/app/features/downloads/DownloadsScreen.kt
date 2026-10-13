@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
@@ -52,6 +53,7 @@ fun DownloadsScreen(
     initialShowId: String? = null,
     onNavigateToShow: ((showId: String, title: String) -> Unit)? = null,
     onBackFromShow: (() -> Unit)? = null,
+    onOpenDetails: ((metaType: String, metaId: String, title: String) -> Unit)? = null,
 ) {
     val uiState by remember {
         DownloadsRepository.ensureLoaded()
@@ -116,6 +118,7 @@ fun DownloadsScreen(
                 onOpenShow = { showId, title ->
                     onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
                 },
+                onOpenDetails = onOpenDetails,
                 onDeleteDownload = { downloadPendingDeletionId = it },
             )
         } else {
@@ -123,6 +126,7 @@ fun DownloadsScreen(
                 showId = selectedShowId.orEmpty(),
                 episodes = completedEpisodes,
                 onOpenDownload = onOpenDownload,
+                onOpenDetails = onOpenDetails,
                 onDeleteDownload = { downloadPendingDeletionId = it },
             )
         }
@@ -150,6 +154,7 @@ private fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
+    onOpenDetails: ((metaType: String, metaId: String, title: String) -> Unit)?,
     onDeleteDownload: (String) -> Unit,
 ) {
     val activeItems = uiState.activeItems
@@ -198,6 +203,9 @@ private fun LazyListScope.downloadsRootContent(
                 onResume = { DownloadsRepository.resumeDownload(item.id) },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
+                onOpenDetails = onOpenDetails?.let {
+                    { it(item.parentMetaType, item.parentMetaId, item.title) }
+                },
             )
         }
     }
@@ -242,6 +250,17 @@ private fun LazyListScope.downloadsRootContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    if (onOpenDetails != null) {
+                        IconButton(
+                            onClick = { onOpenDetails(item.parentMetaType, item.parentMetaId, item.title) },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Info,
+                                contentDescription = stringResource(Res.string.downloads_open_details),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     Icon(
                         imageVector = Icons.Rounded.PlayArrow,
                         contentDescription = null,
@@ -274,6 +293,7 @@ private fun LazyListScope.downloadsShowContent(
     showId: String,
     episodes: List<DownloadItem>,
     onOpenDownload: (DownloadItem) -> Unit,
+    onOpenDetails: ((metaType: String, metaId: String, title: String) -> Unit)?,
     onDeleteDownload: (String) -> Unit,
 ) {
     val showEpisodes = episodes
@@ -331,6 +351,9 @@ private fun LazyListScope.downloadsShowContent(
                 onResume = { DownloadsRepository.resumeDownload(item.id) },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
+                onOpenDetails = onOpenDetails?.let {
+                    { it(item.parentMetaType, item.parentMetaId, item.title) }
+                },
             )
         }
     }
@@ -344,6 +367,7 @@ private fun DownloadRow(
     onResume: () -> Unit,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
+    onOpenDetails: (() -> Unit)? = null,
 ) {
     val displayTitle = item.displayTitle()
     val displaySubtitle = downloadDisplaySubtitle(
@@ -397,6 +421,14 @@ private fun DownloadRow(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onOpenDetails != null) {
+                        IconButton(onClick = onOpenDetails) {
+                            Icon(
+                                imageVector = Icons.Rounded.Info,
+                                contentDescription = stringResource(Res.string.downloads_open_details),
+                            )
+                        }
+                    }
                     when (item.status) {
                         DownloadStatus.Downloading -> {
                             IconButton(onClick = onPause) {

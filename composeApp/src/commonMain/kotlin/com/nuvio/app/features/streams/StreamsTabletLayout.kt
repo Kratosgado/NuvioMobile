@@ -202,6 +202,14 @@ internal fun TabletStreamsLayout(
                             onRefresh = onRefresh,
                         )
 
+                        ResolutionFilterRow(
+                            resolutions = uiState.availableResolutions,
+                            selectedResolution = uiState.resolutionFilter,
+                            onResolutionSelected = { resolution ->
+                                StreamsRepository.selectResolutionFilter(resolution)
+                            },
+                        )
+
                         ActiveScrapersStatusBlock(
                             groups = uiState.groups,
                             modifier = Modifier.padding(bottom = 4.dp),

@@ -231,6 +231,16 @@ internal object DebridStreamMetadata {
         }.normalized()
     }
 
+    /**
+     * Classifies a stream to its [DebridStreamResolution] using the same heuristics as [facts],
+     * but without requiring any [DebridStreamPreferences]. Safe to call headlessly (e.g. from the
+     * bulk download resolution picker).
+     */
+    fun resolutionOf(stream: StreamItem): DebridStreamResolution {
+        val parsed = stream.clientResolve?.stream?.raw?.parsed
+        return streamResolution(parsed?.resolution, parsed?.quality, streamSearchText(stream))
+    }
+
     fun facts(stream: StreamItem, preferences: DebridStreamPreferences): DebridStreamFacts {
         val parsed = stream.clientResolve?.stream?.raw?.parsed
         val searchText = streamSearchText(stream)

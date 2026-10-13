@@ -22,7 +22,10 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
+import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.details.sortedPlayableEpisodes
 import com.nuvio.app.features.p2p.P2pConsentDialog
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.player.PlayerLaunch
@@ -143,6 +146,53 @@ internal fun StreamDestination(
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
+
+    // Resolve the previous/next playable episode so the stream screen can offer episode navigation.
+    var previousEpisode by remember(launch.parentMetaId, launch.seasonNumber, launch.episodeNumber) {
+        mutableStateOf<EpisodeNeighbor?>(null)
+    }
+    var nextEpisode by remember(launch.parentMetaId, launch.seasonNumber, launch.episodeNumber) {
+        mutableStateOf<EpisodeNeighbor?>(null)
+    }
+    LaunchedEffect(
+        launch.parentMetaId,
+        launch.parentMetaType,
+        launch.type,
+        launch.seasonNumber,
+        launch.episodeNumber,
+    ) {
+        previousEpisode = null
+        nextEpisode = null
+        val season = launch.seasonNumber
+        val episode = launch.episodeNumber
+        if (season == null || episode == null) return@LaunchedEffect
+        val metaType = launch.parentMetaType ?: launch.type
+        val metaId = launch.parentMetaId ?: return@LaunchedEffect
+        val meta = runCatching { MetaDetailsRepository.fetch(metaType, metaId) }.getOrNull()
+            ?: return@LaunchedEffect
+        val neighbors = resolveEpisodeNeighbors(meta, season, episode)
+        previousEpisode = neighbors.first
+        nextEpisode = neighbors.second
+    }
+
+    fun navigateToEpisode(target: EpisodeNeighbor) {
+        val streamLaunchId = StreamLaunchStore.put(
+            launch.copy(
+                videoId = target.videoId,
+                seasonNumber = target.seasonNumber,
+                episodeNumber = target.episodeNumber,
+                episodeTitle = target.episodeTitle,
+                episodeThumbnail = target.episodeThumbnail ?: launch.background,
+                // The adjacent episode is a fresh manual selection; don't carry resume state over.
+                resumePositionMs = null,
+                resumeProgressFraction = null,
+                startFromBeginning = false,
+            ),
+        )
+        navController.navigate(
+            StreamRoute(launchId = streamLaunchId, title = launch.title),
+        )
+    }
 
     fun p2pSentinelUrl(infoHash: String, fileIdx: Int?): String =
         "torrent://$infoHash${fileIdx?.let { "?index=$it" }.orEmpty()}"
@@ -751,6 +801,8 @@ internal fun StreamDestination(
             resumeProgressFraction = launch.resumeProgressFraction,
             manualSelection = launch.manualSelection,
             startFromBeginning = launch.startFromBeginning,
+            onPreviousEpisode = previousEpisode?.let { target -> { navigateToEpisode(target) } },
+            onNextEpisode = nextEpisode?.let { target -> { navigateToEpisode(target) } },
             onStreamSelected = { stream, resolvedResumePositionMs, resolvedResumeProgressFraction ->
                 openSelectedStream(
                     stream = stream,
@@ -805,4 +857,43 @@ internal fun StreamDestination(
             )
         }
     }
+}
+
+/** Minimal description of an adjacent episode used to re-launch the stream screen. */
+internal data class EpisodeNeighbor(
+    val videoId: String,
+    val seasonNumber: Int,
+    val episodeNumber: Int,
+    val episodeTitle: String?,
+    val episodeThumbnail: String?,
+)
+
+/**
+ * Returns the (previous, next) playable episodes relative to [season]/[episode] within [meta],
+ * following the same season/episode ordering the details screen uses. Either side is null when
+ * there is no adjacent episode.
+ */
+internal fun resolveEpisodeNeighbors(
+    meta: MetaDetails,
+    season: Int,
+    episode: Int,
+): Pair<EpisodeNeighbor?, EpisodeNeighbor?> {
+    val ordered = meta.sortedPlayableEpisodes()
+    val currentIndex = ordered.indexOfFirst { it.season == season && it.episode == episode }
+    if (currentIndex < 0) return null to null
+    val previous = ordered.getOrNull(currentIndex - 1)?.toEpisodeNeighbor()
+    val next = ordered.getOrNull(currentIndex + 1)?.toEpisodeNeighbor()
+    return previous to next
+}
+
+private fun MetaVideo.toEpisodeNeighbor(): EpisodeNeighbor? {
+    val seasonNumber = season ?: return null
+    val episodeNumber = episode ?: return null
+    return EpisodeNeighbor(
+        videoId = id,
+        seasonNumber = seasonNumber,
+        episodeNumber = episodeNumber,
+        episodeTitle = title,
+        episodeThumbnail = thumbnail,
+    )
 }

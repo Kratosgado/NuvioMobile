@@ -628,6 +628,7 @@
     <string name="downloads_episode_count">%1$d downloaded episode(s)</string>
     <string name="downloads_open_directory">Open downloads folder</string>
     <string name="downloads_open_directory_failed">Couldn&apos;t open downloads folder</string>
+    <string name="downloads_open_details">Open details</string>
     <string name="downloads_section_active">Active</string>
     <string name="downloads_section_movies">Movies</string>
     <string name="downloads_section_shows">Shows</string>
@@ -1669,6 +1670,8 @@
     <string name="streams_empty_no_stream_addon_title">No stream addon available</string>
     <string name="streams_empty_no_streams_message">None of your installed addons returned streams for this title.</string>
     <string name="streams_episode_badge">S%1$d E%2$d</string>
+    <string name="streams_previous_episode">Previous episode</string>
+    <string name="streams_next_episode">Next episode</string>
     <string name="streams_episode_fallback_title">Episode</string>
     <string name="streams_episode_title_with_name">S%1$d E%2$d - %3$s</string>
     <string name="streams_fetching">Fetching…</string>
@@ -1903,6 +1906,20 @@
     <string name="downloads_enqueue_replaced">Replaced previous download</string>
     <string name="downloads_enqueue_started">Download started</string>
     <string name="downloads_enqueue_unsupported_format">Unsupported stream format for downloads</string>
+    <string name="bulk_download_season_action">%1$s — download %2$d episodes</string>
+    <string name="bulk_download_all_seasons_action">Download every season (%1$d episodes across all seasons)</string>
+    <string name="bulk_banner_downloading">Downloading %1$s • %2$d/%3$d</string>
+    <string name="bulk_banner_done">Finished • %1$s • %2$d added, %3$d skipped, %4$d failed</string>
+    <string name="bulk_scope_all_seasons">All seasons</string>
+    <string name="bulk_banner_cancel">Cancel download batch</string>
+    <string name="bulk_banner_probing">Finding streams for %1$s • %2$d/%3$d</string>
+    <string name="bulk_resolution_picker_title">Choose a download quality</string>
+    <string name="bulk_resolution_picker_subtitle">%1$s • %2$d episodes</string>
+    <string name="bulk_resolution_option">%1$s — %2$d episodes</string>
+    <string name="bulk_resolution_option_unknown">Other quality — %1$d episodes</string>
+    <string name="bulk_resolution_none_found">No downloadable streams were found for these episodes.</string>
+    <string name="download_badge_completed">Available offline</string>
+    <string name="download_badge_progress">%1$d/%2$d downloaded</string>
     <string name="downloads_error_empty_body">Empty response body</string>
     <string name="downloads_error_finalize_failed">Failed to finalize download file</string>
     <string name="downloads_error_http_failed">Request failed with HTTP %1$d</string>

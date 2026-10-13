@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.nuvio.app.features.debrid.DebridStreamResolution
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.collections_tab_all
 import nuvio.composeapp.generated.resources.streams_refresh
@@ -94,9 +95,46 @@ internal fun ProviderFilterRow(
     }
 }
 
+/**
+ * Horizontal chip row for filtering the stream list by resolution. Shows an "All" chip plus one
+ * chip per available resolution (highest-first). Renders nothing when fewer than two resolutions
+ * are available, since a single-resolution filter is pointless.
+ */
 @Composable
-internal fun rememberRefreshRotation(isLoading: Boolean): Animatable<Float, AnimationVector1D> {
-    val rotation = remember { Animatable(0f) }
+internal fun ResolutionFilterRow(
+    resolutions: List<DebridStreamResolution>,
+    selectedResolution: DebridStreamResolution?,
+    onResolutionSelected: (DebridStreamResolution?) -> Unit,
+    modifier: Modifier = Modifier,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+    spacing: Dp = 8.dp,
+) {
+    if (resolutions.size < 2) return
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(contentPadding),
+        horizontalArrangement = Arrangement.spacedBy(spacing),
+    ) {
+        FilterChip(
+            label = stringResource(Res.string.collections_tab_all),
+            isSelected = selectedResolution == null,
+            onClick = { onResolutionSelected(null) },
+        )
+        resolutions.forEach { resolution ->
+            FilterChip(
+                label = resolution.label,
+                isSelected = selectedResolution == resolution,
+                onClick = { onResolutionSelected(resolution) },
+            )
+        }
+    }
+}
+
+@Composable
+internal fun rememberRefreshRotation(isLoading: Boolean): Animatable<Float, AnimationVector1D> {    val rotation = remember { Animatable(0f) }
     var hasCompletedFullRotation by remember { mutableStateOf(false) }
     LaunchedEffect(isLoading) {
         if (isLoading) {

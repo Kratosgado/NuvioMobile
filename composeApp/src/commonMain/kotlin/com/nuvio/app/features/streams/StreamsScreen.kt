@@ -28,11 +28,14 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.SearchOff
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -111,6 +114,8 @@ fun StreamsScreen(
     manualSelection: Boolean = false,
     startFromBeginning: Boolean = false,
     showLoadingScreen: Boolean = false,
+    onPreviousEpisode: (() -> Unit)? = null,
+    onNextEpisode: (() -> Unit)? = null,
     onStreamSelected: (stream: StreamItem, resumePositionMs: Long?, resumeProgressFraction: Float?) -> Unit = { _, _, _ -> },
     onStreamActionOpen: (
         stream: StreamItem,
@@ -270,6 +275,8 @@ fun StreamsScreen(
                 appendInstantServiceToDefaultName = debridSettings.canResolvePlayableLinks && !debridSettings.hasCustomStreamFormatting,
                 resumePositionMs = effectiveResumePositionMs,
                 resumeProgressFraction = effectiveResumeProgressFraction,
+                onPreviousEpisode = onPreviousEpisode,
+                onNextEpisode = onNextEpisode,
                 onStreamSelected = { stream, positionMs, progressFraction ->
                     onStreamSelected(stream, positionMs, progressFraction)
                 },
@@ -418,6 +425,8 @@ private fun MobileStreamsLayout(
     onStreamSelected: (stream: StreamItem, resumePositionMs: Long?, resumeProgressFraction: Float?) -> Unit,
     onStreamLongPress: (StreamItem) -> Unit,
     onRefresh: () -> Unit,
+    onPreviousEpisode: (() -> Unit)? = null,
+    onNextEpisode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -448,6 +457,8 @@ private fun MobileStreamsLayout(
                     thumbnail = heroArtwork,
                     blurred = blurEpisodeThumbnail,
                     showTitle = title,
+                    onPreviousEpisode = onPreviousEpisode,
+                    onNextEpisode = onNextEpisode,
                 )
             } else {
                 MovieHeroBlock(
@@ -492,6 +503,14 @@ private fun MobileStreamsLayout(
                         selectedFilter = uiState.selectedFilter,
                         onFilterSelected = { addonId -> StreamsRepository.selectFilter(addonId) },
                         onRefresh = onRefresh,
+                    )
+
+                    ResolutionFilterRow(
+                        resolutions = uiState.availableResolutions,
+                        selectedResolution = uiState.resolutionFilter,
+                        onResolutionSelected = { resolution ->
+                            StreamsRepository.selectResolutionFilter(resolution)
+                        },
                     )
 
                     StreamList(
@@ -623,6 +642,8 @@ private fun EpisodeHeroBlock(
     blurred: Boolean,
     showTitle: String,
     modifier: Modifier = Modifier,
+    onPreviousEpisode: (() -> Unit)? = null,
+    onNextEpisode: (() -> Unit)? = null,
 ) {
     val heroBlendColor = MaterialTheme.colorScheme.background
 
@@ -677,15 +698,38 @@ private fun EpisodeHeroBlock(
                 .padding(bottom = 12.dp),
             verticalArrangement = Arrangement.Bottom,
         ) {
-            // Episode label
-            Text(
-                text = stringResource(Res.string.streams_episode_badge, seasonNumber, episodeNumber),
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                ),
-                color = MaterialTheme.colorScheme.primary,
-            )
+            // Episode label + previous/next controls
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = stringResource(Res.string.streams_episode_badge, seasonNumber, episodeNumber),
+                    style = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                if (onPreviousEpisode != null || onNextEpisode != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        EpisodeNavButton(
+                            icon = Icons.Rounded.SkipPrevious,
+                            contentDescription = stringResource(Res.string.streams_previous_episode),
+                            onClick = onPreviousEpisode,
+                        )
+                        EpisodeNavButton(
+                            icon = Icons.Rounded.SkipNext,
+                            contentDescription = stringResource(Res.string.streams_next_episode),
+                            onClick = onNextEpisode,
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(2.dp))
             // Episode title
             Text(
@@ -714,10 +758,41 @@ private fun EpisodeHeroBlock(
     }
 }
 
+@Composable
+private fun EpisodeNavButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: (() -> Unit)?,
+) {
+    val enabled = onClick != null
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(
+                MaterialTheme.colorScheme.surface.copy(alpha = if (enabled) 0.6f else 0.25f),
+            )
+            .then(
+                if (enabled) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f),
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Stream List
 // ---------------------------------------------------------------------------
-
 @Composable
 internal fun StreamList(
     uiState: StreamsUiState,

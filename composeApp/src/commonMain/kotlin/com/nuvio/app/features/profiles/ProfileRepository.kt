@@ -190,6 +190,7 @@ object ProfileRepository {
         CollectionRepository.onProfileChanged()
         CollectionMobileSettingsRepository.onProfileChanged()
         DownloadsRepository.onProfileChanged()
+        com.nuvio.app.features.downloads.BulkDownloadsRepository.cancelActiveBatch()
         ServerRepository.onProfileChanged()
         ProfileSettingsSync.onProfileChanged()
     }

@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -136,6 +137,10 @@ fun SeasonWatchedActionSheet(
     onDismiss: () -> Unit,
     onToggleSeasonWatched: () -> Unit,
     onMarkPreviousSeasonsWatched: () -> Unit,
+    downloadEpisodeCount: Int = 0,
+    allSeasonsEpisodeCount: Int = 0,
+    onDownloadSeason: (() -> Unit)? = null,
+    onDownloadAllSeasons: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -183,6 +188,37 @@ fun SeasonWatchedActionSheet(
                     title = stringResource(Res.string.episode_mark_previous_seasons_watched),
                     onClick = {
                         onMarkPreviousSeasonsWatched()
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
+                    },
+                )
+            }
+            if (onDownloadSeason != null && downloadEpisodeCount > 0) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Rounded.Download,
+                    title = stringResource(
+                        Res.string.bulk_download_season_action,
+                        seasonLabel,
+                        downloadEpisodeCount,
+                    ),
+                    onClick = {
+                        onDownloadSeason()
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
+                    },
+                )
+            }
+            if (onDownloadAllSeasons != null && allSeasonsEpisodeCount > 0) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Default.DoneAll,
+                    title = stringResource(
+                        Res.string.bulk_download_all_seasons_action,
+                        allSeasonsEpisodeCount,
+                    ),
+                    onClick = {
+                        onDownloadAllSeasons()
                         coroutineScope.launch {
                             dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
                         }

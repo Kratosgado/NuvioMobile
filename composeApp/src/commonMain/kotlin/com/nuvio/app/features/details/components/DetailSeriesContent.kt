@@ -36,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,6 +47,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -80,6 +82,9 @@ import com.nuvio.app.features.details.formatRuntimeFromMinutes
 import com.nuvio.app.features.details.groupedEpisodesForDisplay
 import com.nuvio.app.features.details.preferredEpisodeNumberForSeason
 import com.nuvio.app.features.details.seasonSortKey
+import com.nuvio.app.features.downloads.DownloadedContentInfo
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.NuvioDownloadedBadge
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.application.WatchingState
@@ -161,6 +166,11 @@ fun DetailSeriesContent(
         return
     }
 
+    val downloadsUiState by DownloadsRepository.uiState.collectAsStateWithLifecycle()
+    val downloadedInfo = remember(meta.id, downloadsUiState.items) {
+        DownloadedContentInfo.of(meta.id, downloadsUiState.items)
+    }
+
     val seasons = groupedEpisodes.keys.sortedBy(::seasonSortKey)
     val defaultSeason = preferredSeasonNumber
         ?.takeIf { it in groupedEpisodes }
@@ -227,6 +237,7 @@ fun DetailSeriesContent(
                             episodeRatings = episodeRatings,
                             episodeRatingsVisibility = episodeRatingsVisibility,
                             blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                            downloadedEpisodeKeys = downloadedInfo.downloadedEpisodeKeys,
                             preferredEpisodeNumber = preferredEpisodeNumberForSeason(
                                 displayedSeasonNumber = seasonForContent,
                                 preferredSeasonNumber = preferredSeasonNumber,
@@ -258,6 +269,9 @@ fun DetailSeriesContent(
                                             metaId = meta.id,
                                             episode = episode,
                                         ),
+                                    isDownloaded = episode.season != null &&
+                                        episode.episode != null &&
+                                        downloadedInfo.isEpisodeDownloaded(episode.season, episode.episode),
                                     episodeRatingsVisibility = episodeRatingsVisibility,
                                     blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                                     sizing = sizing,
@@ -319,6 +333,7 @@ internal fun DetailSeriesListEpisode(
     episodeRatings: Map<Pair<Int, Int>, Double>,
     episodeRatingsVisibility: EpisodeRatingsVisibility,
     blurUnwatchedEpisodes: Boolean,
+    downloadedEpisodeKeys: Set<String> = emptySet(),
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
     modifier: Modifier = Modifier,
@@ -343,6 +358,9 @@ internal fun DetailSeriesListEpisode(
                     metaId = meta.id,
                     episode = episode,
                 ),
+            isDownloaded = episode.season != null &&
+                episode.episode != null &&
+                "${episode.season}|${episode.episode}" in downloadedEpisodeKeys,
             episodeRatingsVisibility = episodeRatingsVisibility,
             blurUnwatchedEpisodes = blurUnwatchedEpisodes,
             sizing = sizing,
@@ -367,6 +385,14 @@ private fun SeriesSeasonSelector(
 
     var seasonViewMode by remember {
         mutableStateOf(SeasonViewModeStorage.load() ?: SeasonViewMode.Posters)
+    }
+    val downloadsUiState by DownloadsRepository.uiState.collectAsStateWithLifecycle()
+    val fullyDownloadedSeasons = remember(meta.id, downloadsUiState.items, groupedEpisodes) {
+        DownloadedContentInfo.fullyDownloadedSeasons(
+            seasonEpisodeTotals = groupedEpisodes.mapValues { (_, list) -> list.size },
+            seasonDownloadedCounts = DownloadedContentInfo.of(meta.id, downloadsUiState.items)
+                .seasonDownloadedCounts,
+        )
     }
     val hasSeasonPosters = seasons.any { season ->
         resolveSeasonPoster(
@@ -419,6 +445,7 @@ private fun SeriesSeasonSelector(
                         currentSeason = currentSeason,
                         sizing = sizing,
                         horizontalScrollPadding = horizontalScrollPadding,
+                        fullyDownloadedSeasons = fullyDownloadedSeasons,
                         onSelect = onSelect,
                         onLongPress = onLongPress,
                     )
@@ -427,6 +454,7 @@ private fun SeriesSeasonSelector(
                         currentSeason = currentSeason,
                         sizing = sizing,
                         horizontalScrollPadding = horizontalScrollPadding,
+                        fullyDownloadedSeasons = fullyDownloadedSeasons,
                         onSelect = onSelect,
                         onLongPress = onLongPress,
                     )
@@ -438,6 +466,7 @@ private fun SeriesSeasonSelector(
                 currentSeason = currentSeason,
                 sizing = sizing,
                 horizontalScrollPadding = horizontalScrollPadding,
+                fullyDownloadedSeasons = fullyDownloadedSeasons,
                 onSelect = onSelect,
                 onLongPress = onLongPress,
             )
@@ -487,6 +516,7 @@ private fun SeasonTextChipScrollRow(
     currentSeason: Int,
     sizing: SeriesContentSizing,
     horizontalScrollPadding: Dp,
+    fullyDownloadedSeasons: Set<Int> = emptySet(),
     onSelect: (Int) -> Unit,
     onLongPress: ((Int) -> Unit)?,
 ) {
@@ -547,6 +577,14 @@ private fun SeasonTextChipScrollRow(
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
                 )
+                if (season in fullyDownloadedSeasons) {
+                    NuvioDownloadedBadge(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 2.dp, end = 2.dp)
+                            .size(12.dp),
+                    )
+                }
             }
         }
     }
@@ -560,6 +598,7 @@ private fun SeasonPosterScrollRow(
     currentSeason: Int,
     sizing: SeriesContentSizing,
     horizontalScrollPadding: Dp,
+    fullyDownloadedSeasons: Set<Int> = emptySet(),
     onSelect: (Int) -> Unit,
     onLongPress: ((Int) -> Unit)?,
 ) {
@@ -597,6 +636,7 @@ private fun SeasonPosterScrollRow(
                     ?: meta.poster
                     ?: meta.background,
                 isSelected = season == currentSeason,
+                isDownloaded = season in fullyDownloadedSeasons,
                 sizing = sizing,
                 onClick = { onSelect(season) },
                 onLongClick = onLongPress?.let { handler -> { handler(season) } },
@@ -620,6 +660,7 @@ private fun SeasonPosterButton(
     label: String,
     imageUrl: String?,
     isSelected: Boolean,
+    isDownloaded: Boolean,
     sizing: SeriesContentSizing,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
@@ -673,6 +714,13 @@ private fun SeasonPosterButton(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                if (isDownloaded) {
+                    NuvioDownloadedBadge(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp),
+                    )
+                }
             }
         }
         Text(
@@ -708,6 +756,7 @@ private fun EpisodeHorizontalRow(
     episodeRatings: Map<Pair<Int, Int>, Double>,
     episodeRatingsVisibility: EpisodeRatingsVisibility,
     blurUnwatchedEpisodes: Boolean,
+    downloadedEpisodeKeys: Set<String> = emptySet(),
     preferredEpisodeNumber: Int? = null,
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
@@ -765,6 +814,9 @@ private fun EpisodeHorizontalRow(
                         metaId = parentMetaId,
                         episode = episode,
                     ),
+                isDownloaded = episode.season != null &&
+                    episode.episode != null &&
+                    "${episode.season}|${episode.episode}" in downloadedEpisodeKeys,
                 episodeRatingsVisibility = episodeRatingsVisibility,
                 blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                 metrics = rowMetrics,
@@ -783,6 +835,7 @@ private fun EpisodeHorizontalCard(
     progressEntry: WatchProgressEntry?,
     imdbRating: Double?,
     isWatched: Boolean,
+    isDownloaded: Boolean,
     episodeRatingsVisibility: EpisodeRatingsVisibility,
     blurUnwatchedEpisodes: Boolean,
     metrics: EpisodeHorizontalCardMetrics,
@@ -857,6 +910,16 @@ private fun EpisodeHorizontalCard(
                 .align(Alignment.TopEnd)
                 .padding(metrics.contentPadding),
         )
+        if (isDownloaded) {
+            NuvioDownloadedBadge(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(
+                        top = metrics.contentPadding + if (isWatched) 26.dp else 0.dp,
+                        end = metrics.contentPadding,
+                    ),
+            )
+        }
 
         Column(
             modifier = Modifier
@@ -1169,6 +1232,7 @@ private fun EpisodeListCard(
     progressEntry: WatchProgressEntry?,
     imdbRating: Double?,
     isWatched: Boolean,
+    isDownloaded: Boolean,
     episodeRatingsVisibility: EpisodeRatingsVisibility,
     blurUnwatchedEpisodes: Boolean,
     sizing: SeriesContentSizing,
@@ -1247,6 +1311,16 @@ private fun EpisodeListCard(
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
                 )
+                if (isDownloaded) {
+                    NuvioDownloadedBadge(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(
+                                top = 8.dp + if (isWatched) 26.dp else 0.dp,
+                                end = 8.dp,
+                            ),
+                    )
+                }
             }
 
             Column(

@@ -37,10 +37,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaExternalRating
 import com.nuvio.app.features.details.formatRuntimeForDisplay
 import com.nuvio.app.features.details.formatMetaReleaseLineForDetails
+import com.nuvio.app.features.downloads.DownloadedContentInfo
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.mdblist.MdbListMetadataService.PROVIDER_AUDIENCE
 import com.nuvio.app.features.mdblist.MdbListMetadataService.PROVIDER_IMDB
 import com.nuvio.app.features.mdblist.MdbListMetadataService.PROVIDER_LETTERBOXD
@@ -91,6 +95,7 @@ fun DetailMetaInfo(
             runtimeText != null ||
             ageBadge != null ||
             validImdbRating != null
+        val downloadedBadgeLabel = rememberDownloadedBadgeLabel(meta)
         if (hasMetaRow) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -135,6 +140,9 @@ fun DetailMetaInfo(
                         )
                     }
                 }
+                if (downloadedBadgeLabel != null) {
+                    DetailHeroMetaBadge(text = downloadedBadgeLabel)
+                }
             }
         }
 
@@ -147,6 +155,14 @@ fun DetailMetaInfo(
                 ratings = meta.externalRatings,
                 horizontalScrollPadding = horizontalScrollPadding,
             )
+        }
+
+        if (downloadedBadgeLabel != null && !hasMetaRow) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                DetailHeroMetaBadge(text = downloadedBadgeLabel)
+            }
         }
 
         if (meta.director.isNotEmpty()) {
@@ -280,6 +296,36 @@ internal fun MetaLabelValueRow(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
+    }
+}
+
+@Composable
+private fun rememberDownloadedBadgeLabel(meta: MetaDetails): String? {
+    val loaded = DownloadsRepository.uiState.collectAsStateWithLifecycle()
+    val items = loaded.value.items
+    val info = remember(meta.id, items) {
+        DownloadedContentInfo.of(meta.id, items)
+    }
+    return when {
+        info.movieDownloaded -> stringResource(Res.string.download_badge_completed)
+        meta.type == "series" && info.downloadedEpisodeKeys.isNotEmpty() -> {
+            val totalEpisodeCount = meta.videos.count { it.season != null && it.episode != null }
+            val downloadedCount = info.downloadedEpisodeKeys.size
+            if (totalEpisodeCount > 0) {
+                if (downloadedCount >= totalEpisodeCount) {
+                    stringResource(Res.string.download_badge_completed)
+                } else {
+                    stringResource(
+                        Res.string.download_badge_progress,
+                        downloadedCount,
+                        totalEpisodeCount,
+                    )
+                }
+            } else {
+                stringResource(Res.string.download_badge_completed)
+            }
+        }
+        else -> null
     }
 }
 

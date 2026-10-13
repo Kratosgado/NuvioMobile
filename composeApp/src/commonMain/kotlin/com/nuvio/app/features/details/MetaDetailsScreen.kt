@@ -108,6 +108,12 @@ import com.nuvio.app.features.details.components.DetailSeriesListHeader
 import com.nuvio.app.features.details.components.DetailTrailersSection
 import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
+import com.nuvio.app.features.downloads.BulkDownloadPolicy
+import com.nuvio.app.features.downloads.BulkDownloadResolutionPickerHost
+import com.nuvio.app.features.downloads.BulkDownloadStatusBannerHost
+import com.nuvio.app.features.downloads.BulkDownloadsRepository
+import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.details.components.TabletDetailBackdrop
 import com.nuvio.app.features.details.components.TabletDetailHero
 import com.nuvio.app.features.details.components.TrailerPlayerPopup
@@ -1344,6 +1350,10 @@ fun MetaDetailsScreen(
                             onToggleSaved = toggleSaved,
                         )
 
+                        BulkDownloadStatusBannerHost()
+
+                        BulkDownloadResolutionPickerHost()
+
                         selectedEpisodeForActions
                             ?.takeIf { selectedEpisodeZoomAnchor == null }
                             ?.let { selectedEpisode ->
@@ -1455,6 +1465,32 @@ fun MetaDetailsScreen(
                                     )
                                 }
                             }
+                            val bulkDownloadsUiState by DownloadsRepository.uiState.collectAsStateWithLifecycle()
+                            val bulkActiveOrCompleteKeys = remember(meta.id, bulkDownloadsUiState.items) {
+                                bulkDownloadsUiState.items
+                                    .filter { item -> item.parentMetaId == meta.id.trim() }
+                                    .filter { item -> item.status == DownloadStatus.Downloading || item.status == DownloadStatus.Completed }
+                                    .mapTo(mutableSetOf()) { item ->
+                                        "${item.seasonNumber ?: 0}|${item.episodeNumber ?: 0}"
+                                    }
+                            }
+                            val statusForBulkCandidate: (season: Int, episode: Int) -> DownloadStatus? = { season, episode ->
+                                if ("$season|$episode" in bulkActiveOrCompleteKeys) {
+                                    DownloadStatus.Completed
+                                } else {
+                                    null
+                                }
+                            }
+                            val seasonDownloadCount = remember(seasonEpisodes, bulkActiveOrCompleteKeys) {
+                                BulkDownloadPolicy.countBulkCandidates(seasonEpisodes, statusForBulkCandidate)
+                            }
+                            val allReleasedEpisodes = remember(meta, todayIsoDate) {
+                                meta.releasedPlayableEpisodes(todayIsoDate)
+                            }
+                            val allSeasonsDownloadCount = remember(allReleasedEpisodes, bulkActiveOrCompleteKeys) {
+                                BulkDownloadPolicy.countBulkCandidates(allReleasedEpisodes, statusForBulkCandidate)
+                            }
+                            val allSeasonsScopeLabel = stringResource(Res.string.bulk_scope_all_seasons)
                             SeasonWatchedActionSheet(
                                 seasonLabel = seasonLabel,
                                 isSeasonWatched = isSeasonWatched,
@@ -1472,6 +1508,22 @@ fun MetaDetailsScreen(
                                         meta = meta,
                                         episodes = previousSeasonEpisodes,
                                         areCurrentlyWatched = false,
+                                    )
+                                },
+                                downloadEpisodeCount = seasonDownloadCount,
+                                allSeasonsEpisodeCount = allSeasonsDownloadCount,
+                                onDownloadSeason = {
+                                    BulkDownloadsRepository.probeSeriesResolutions(
+                                        meta = meta,
+                                        requestedEpisodes = seasonEpisodes,
+                                        scopeLabel = seasonLabel,
+                                    )
+                                },
+                                onDownloadAllSeasons = {
+                                    BulkDownloadsRepository.probeSeriesResolutions(
+                                        meta = meta,
+                                        requestedEpisodes = allReleasedEpisodes,
+                                        scopeLabel = allSeasonsScopeLabel,
                                     )
                                 },
                             )

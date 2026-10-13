@@ -1,6 +1,8 @@
 package com.nuvio.app.features.streams
 
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.features.debrid.DebridStreamMetadata
+import com.nuvio.app.features.debrid.DebridStreamResolution
 import com.nuvio.app.features.servers.ServerPlaybackTarget
 import kotlinx.serialization.Serializable
 
@@ -317,6 +319,7 @@ data class StreamsUiState(
     val groups: List<AddonStreamGroup> = emptyList(),
     val activeAddonIds: Set<String> = emptySet(),
     val selectedFilter: String? = null,
+    val resolutionFilter: DebridStreamResolution? = null,
     val isAnyLoading: Boolean = false,
     val emptyStateReason: StreamsEmptyStateReason? = null,
     val autoPlayStream: StreamItem? = null,
@@ -325,9 +328,39 @@ data class StreamsUiState(
     val showDirectAutoPlayOverlay: Boolean = false,
     val overlayMessage: String? = null,
 ) {
-    val filteredGroups: List<AddonStreamGroup>
+    /** Groups after the active addon filter, before resolution filtering. */
+    private val addonFilteredGroups: List<AddonStreamGroup>
         get() = if (selectedFilter == null) groups
                 else groups.filter { it.addonId == selectedFilter }
+
+    val filteredGroups: List<AddonStreamGroup>
+        get() {
+            val base = addonFilteredGroups
+            val resolution = resolutionFilter ?: return base
+            return base.mapNotNull { group ->
+                val matching = group.streams.filter { DebridStreamMetadata.resolutionOf(it) == resolution }
+                // Keep loading placeholders visible; otherwise drop groups with no match.
+                when {
+                    matching.isNotEmpty() -> group.copy(streams = matching)
+                    group.isLoading -> group.copy(streams = emptyList())
+                    else -> null
+                }
+            }
+        }
+
+    /**
+     * Resolutions available across the addon-filtered streams, highest-first, so the UI can show a
+     * resolution filter chip row. Excludes [DebridStreamResolution.UNKNOWN].
+     */
+    val availableResolutions: List<DebridStreamResolution>
+        get() {
+            val present = addonFilteredGroups
+                .flatMap { it.streams }
+                .mapTo(mutableSetOf()) { DebridStreamMetadata.resolutionOf(it) }
+            return DebridStreamResolution.defaultOrder.filter {
+                it != DebridStreamResolution.UNKNOWN && it in present
+            }
+        }
 
     val allStreams: List<StreamItem>
         get() = filteredGroups.flatMap { it.streams }
