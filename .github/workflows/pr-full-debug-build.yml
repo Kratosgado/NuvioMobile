@@ -1,9 +1,7 @@
 name: PR Full Debug Build
 
+# Automatic pull_request trigger disabled; manual dispatch only.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [cmp-rewrite]
   workflow_dispatch:
 
 permissions:

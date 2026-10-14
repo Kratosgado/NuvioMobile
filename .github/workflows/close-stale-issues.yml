@@ -1,8 +1,7 @@
 name: Close inactive bug issues
 
+# Daily schedule disabled; manual dispatch only.
 on:
-  schedule:
-    - cron: "29 6 * * *" # daily
   workflow_dispatch:
     inputs:
       dry_run:

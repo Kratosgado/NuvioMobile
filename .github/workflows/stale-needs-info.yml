@@ -1,8 +1,7 @@
 name: Close needs-info bug issues
 
+# Daily schedule disabled; manual dispatch only.
 on:
-  schedule:
-    - cron: "17 6 * * *" # daily
   workflow_dispatch: {}
 
 permissions:

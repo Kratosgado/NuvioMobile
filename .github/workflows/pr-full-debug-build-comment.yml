@@ -1,9 +1,8 @@
 name: PR Full Debug Build Comment
 
+# Automatic workflow_run trigger disabled; manual dispatch only.
 on:
-  workflow_run:
-    workflows: ["PR Full Debug Build"]
-    types: [completed]
+  workflow_dispatch:
 
 permissions:
   actions: read

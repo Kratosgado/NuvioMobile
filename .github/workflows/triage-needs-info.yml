@@ -1,10 +1,8 @@
 name: Triage (needs-info)
 
+# Automatic issues trigger disabled; manual dispatch only.
 on:
-  issues:
-    # A reopen is an explicit human triage decision. Do not run automatic
-    # closure/needs-info rules again after a maintainer reopens an issue.
-    types: [opened, edited]
+  workflow_dispatch:
 
 permissions:
   issues: write

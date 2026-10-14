@@ -1,8 +1,7 @@
 name: Close unlabeled issues
 
+# Daily schedule disabled; manual dispatch only.
 on:
-  schedule:
-    - cron: "23 6 * * *" # daily
   workflow_dispatch:
     inputs:
       dry_run:

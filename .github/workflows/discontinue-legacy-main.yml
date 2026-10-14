@@ -18,14 +18,7 @@ on:
         required: true
         type: boolean
         default: false
-  issues:
-    types:
-      - opened
-      - reopened
-  pull_request_target:
-    types:
-      - opened
-      - reopened
+  # Automatic issues / pull_request_target triggers disabled; manual dispatch only.
 
 permissions:
   contents: read
