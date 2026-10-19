@@ -78,6 +78,9 @@ android {
     productFlavors {
         create("full") {
             dimension = "distribution"
+            // Fork distinguisher so this build installs alongside the upstream Nuvio app
+            // instead of replacing it. Comment out the suffix if you want parity with upstream.
+            applicationIdSuffix = ".fork"
         }
         create("playstore") {
             dimension = "distribution"
