@@ -1,147 +1,22 @@
 name: Build Android Release
 
 on:
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
-      mode:
-        description: Validate only, create a draft, or publish the release
-        required: true
-        type: choice
-        options:
-          - dry-run
-          - draft
-          - publish
-        default: dry-run
-      exclude_commits:
-        description: Optional comma-separated commit hashes to omit from the notes
+      version:
+        description: Version name to stamp into the APK (defaults to tag or 0.0.0-dev)
         required: false
         type: string
 
 permissions:
-  contents: read
-
-concurrency:
-  group: mobile-release-${{ github.ref }}
-  cancel-in-progress: false
+  contents: write
 
 jobs:
-  prepare:
-    name: Prepare ${{ inputs.mode }} release
-    runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.release.outputs.tag }}
-      version: ${{ steps.release.outputs.version }}
-    env:
-      GH_TOKEN: ${{ github.token }}
-      RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
-      RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
-
-    steps:
-      - name: Check out full history
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Read release metadata
-        id: release
-        run: ./scripts/release-metadata.sh "${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
-
-      - name: Validate release state
-        env:
-          RELEASE_TAG: ${{ steps.release.outputs.tag }}
-          CURRENT_BUMP: ${{ steps.release.outputs.current_bump }}
-          RELEASE_COMMIT: ${{ steps.release.outputs.release_commit }}
-          RELEASE_BRANCH: ${{ github.ref_name }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          RELEASE_REF_TYPE: ${{ github.ref_type }}
-          RELEASE_MODE: ${{ inputs.mode }}
-        run: |
-          if [[ "${RELEASE_REF_TYPE}" != "branch" ]]; then
-            echo "Releases must be dispatched from a branch, not ${RELEASE_REF_TYPE}." >&2
-            exit 1
-          fi
-          if [[ "${RELEASE_BRANCH}" != "${DEFAULT_BRANCH}" ]]; then
-            echo "Releases must be dispatched from the default branch (${DEFAULT_BRANCH})." >&2
-            exit 1
-          fi
-
-          if git rev-parse --verify --quiet "refs/tags/${RELEASE_TAG}"; then
-            echo "Tag ${RELEASE_TAG} already exists." >&2
-            exit 1
-          fi
-          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "A GitHub release for ${RELEASE_TAG} already exists." >&2
-            exit 1
-          fi
-
-          unexpected_changes="$(
-            git diff --name-only "${CURRENT_BUMP}..${RELEASE_COMMIT}" \
-              | grep -Ev '^(\.github/workflows/android-release\.yml|scripts/(generate-release-notes|release-metadata)\.sh)$' \
-              || true
-          )"
-          if [[ -n "${unexpected_changes}" ]]; then
-            echo "The version bump must be the final application change before release." >&2
-            echo "Unexpected files changed after the bump:" >&2
-            echo "${unexpected_changes}" >&2
-            exit 1
-          fi
-
-          if [[ "${RELEASE_MODE}" != "dry-run" ]]; then
-            required_secrets=(
-              RELEASE_PROPERTIES_BASE64
-              RELEASE_KEYSTORE_BASE64
-            )
-            missing=()
-            for secret_name in "${required_secrets[@]}"; do
-              if [[ -z "${!secret_name}" ]]; then
-                missing+=("${secret_name}")
-              fi
-            done
-            if (( ${#missing[@]} > 0 )); then
-              printf 'Missing required release secrets: %s\n' "${missing[*]}" >&2
-              exit 1
-            fi
-          fi
-
-      - name: Generate release notes
-        env:
-          PREVIOUS_BUMP: ${{ steps.release.outputs.previous_bump }}
-          CURRENT_BUMP: ${{ steps.release.outputs.current_bump }}
-          EXCLUDE_COMMITS: ${{ inputs.exclude_commits }}
-        run: |
-          ./scripts/generate-release-notes.sh \
-            --from "${PREVIOUS_BUMP}" \
-            --to "${CURRENT_BUMP}" \
-            --repository "${GITHUB_REPOSITORY}" \
-            --exclude "${EXCLUDE_COMMITS}" \
-            > release-notes.md
-
-          if [[ ! -s release-notes.md ]]; then
-            echo "No release-note commits were found." >&2
-            exit 1
-          fi
-
-          {
-            echo "## ${{ steps.release.outputs.version }} release notes"
-            echo
-            cat release-notes.md
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Upload release notes
-        if: inputs.mode != 'dry-run'
-        uses: actions/upload-artifact@v7
-        with:
-          name: release-notes
-          path: release-notes.md
-          if-no-files-found: error
-
-  android:
-    name: Build Android APKs
-    if: inputs.mode != 'dry-run'
-    needs: prepare
+  build-release:
     runs-on: ubuntu-latest
     env:
-      RELEASE_VERSION: ${{ needs.prepare.outputs.tag }}
       RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
       RELEASE_KEYSTORE_BASE64: ${{ secrets.NUVIO_RELEASE_KEYSTORE_BASE64 }}
 
@@ -157,6 +32,19 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
+
+      - name: Resolve release version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            version="${{ inputs.version }}"
+          else
+            version="0.0.0-dev"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "Building version: ${version}"
 
       - name: Configure release properties
         run: |
@@ -180,54 +68,39 @@ jobs:
           done
 
       - name: Build full release APKs
-        run: ./gradlew :androidApp:assembleFullRelease -Pnuvio.app.versionName="${RELEASE_VERSION}" --stacktrace
+        run: ./gradlew :androidApp:assembleFullRelease -Pnuvio.app.versionName="${{ steps.version.outputs.version }}" --stacktrace
 
-      - name: Upload Android artifacts
+      - name: Stage APKs with versioned names
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          mkdir -p dist
+          for src in androidApp/build/outputs/apk/full/release/*.apk; do
+            name=$(basename "$src")
+            case "$name" in
+              *universal*)   cp "$src" "dist/Nuvio-v${version}.apk" ;;
+              *arm64-v8a*)   cp "$src" "dist/Nuvio-v${version}_arm64-v8a.apk" ;;
+              *armeabi-v7a*) cp "$src" "dist/Nuvio-v${version}_armeabi-v7a.apk" ;;
+              *x86_64*)      cp "$src" "dist/Nuvio-v${version}_x86_64.apk" ;;
+              *x86*)         cp "$src" "dist/Nuvio-v${version}_x86.apk" ;;
+              *)             cp "$src" "dist/${name}" ;;
+            esac
+          done
+          ls -lh dist
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v7
         with:
-          name: nuvio-${{ needs.prepare.outputs.version }}-android-full-release
-          path: androidApp/build/outputs/apk/full/release/*.apk
+          name: nuvio-${{ steps.version.outputs.version }}-android-full-release
+          path: dist/*.apk
           if-no-files-found: error
 
-  release:
-    name: Create ${{ inputs.mode }} release
-    if: inputs.mode != 'dry-run'
-    needs:
-      - prepare
-      - android
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      RELEASE_MODE: ${{ inputs.mode }}
-      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
-      RELEASE_VERSION: ${{ needs.prepare.outputs.tag }}
-      RELEASE_BRANCH: ${{ github.ref_name }}
-
-    steps:
-      - name: Download release artifacts
-        uses: actions/download-artifact@v8
+      - name: Attach APKs to the draft release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
         with:
-          path: release-assets
-          merge-multiple: true
-
-      - name: Create GitHub release
-        run: |
-          mapfile -t release_files < <(find release-assets -maxdepth 1 -type f -name '*.apk' -print | sort)
-          if (( ${#release_files[@]} == 0 )); then
-            echo "No release packages were produced." >&2
-            exit 1
-          fi
-
-          release_args=(
-            "${RELEASE_TAG}"
-            --repo "${GITHUB_REPOSITORY}"
-            --target "${RELEASE_BRANCH}"
-            --title "${RELEASE_VERSION}"
-            --notes-file release-assets/release-notes.md
-          )
-          if [[ "${RELEASE_MODE}" == "draft" ]]; then
-            release_args+=(--draft)
-          fi
-          gh release create "${release_args[@]}" "${release_files[@]}"
+          tag_name: ${{ github.ref_name }}
+          name: Nuvio ${{ github.ref_name }}
+          draft: true
+          files: dist/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
