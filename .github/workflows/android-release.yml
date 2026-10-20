@@ -94,13 +94,13 @@ jobs:
           path: dist/*.apk
           if-no-files-found: error
 
-      - name: Attach APKs to the draft release
+      - name: Attach APKs to the release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Nuvio ${{ github.ref_name }}
-          draft: true
+          draft: false
           files: dist/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
