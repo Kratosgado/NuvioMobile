@@ -17,6 +17,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.Dp
+import com.nuvio.app.features.downloads.NuvioDownloadedBadge
+import com.nuvio.app.features.downloads.NuvioDownloadingBadge
+import com.nuvio.app.features.downloads.PosterDownloadState
+import com.nuvio.app.features.downloads.PosterDownloadStatus
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.episodes_cd_watched
 import org.jetbrains.compose.resources.stringResource
@@ -70,4 +74,30 @@ fun BoxScope.NuvioPosterWatchedOverlay(
             .align(Alignment.TopEnd)
             .padding(padding),
     )
+}
+
+/**
+ * Download state marker for poster cards, placed at the top-start so it never collides with the
+ * top-end watched badge. Shows a progress ring while downloading and a solid badge once offline.
+ */
+@Composable
+fun BoxScope.NuvioPosterDownloadOverlay(
+    state: PosterDownloadState,
+    modifier: Modifier = Modifier,
+    padding: Dp = NuvioTokens.Space.s6,
+) {
+    AnimatedVisibility(
+        visible = state.status != PosterDownloadStatus.None,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = modifier
+            .align(Alignment.TopStart)
+            .padding(padding),
+    ) {
+        when (state.status) {
+            PosterDownloadStatus.Downloading -> NuvioDownloadingBadge(progress = state.progress)
+            PosterDownloadStatus.Downloaded -> NuvioDownloadedBadge()
+            PosterDownloadStatus.None -> Unit
+        }
+    }
 }

@@ -114,6 +114,7 @@ import com.nuvio.app.features.downloads.BulkDownloadStatusBannerHost
 import com.nuvio.app.features.downloads.BulkDownloadsRepository
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.DownloadedContentInfo
 import com.nuvio.app.features.details.components.TabletDetailBackdrop
 import com.nuvio.app.features.details.components.TabletDetailHero
 import com.nuvio.app.features.details.components.TrailerPlayerPopup
@@ -2134,6 +2135,10 @@ private fun LazyListScope.configuredMetaSectionItems(
                 contentMaxWidth = contentMaxWidth,
                 bottomPadding = if (index == episodes.lastIndex) 20.dp else 12.dp,
             ) {
+                val episodeListDownloadsUiState by DownloadsRepository.uiState.collectAsStateWithLifecycle()
+                val episodeListDownloadedInfo = remember(meta.id, episodeListDownloadsUiState.items) {
+                    DownloadedContentInfo.of(meta.id, episodeListDownloadsUiState.items)
+                }
                 DetailSeriesListEpisode(
                     meta = meta,
                     episode = episode,
@@ -2142,6 +2147,8 @@ private fun LazyListScope.configuredMetaSectionItems(
                     episodeRatings = episodeImdbRatings,
                     episodeRatingsVisibility = settings.episodeRatingsVisibility,
                     blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                    downloadedEpisodeKeys = episodeListDownloadedInfo.downloadedEpisodeKeys,
+                    downloadingEpisodeProgress = episodeListDownloadedInfo.downloadingEpisodeProgress,
                     onEpisodeClick = onEpisodeClick,
                     onEpisodeLongPress = onEpisodeLongPress,
                 )

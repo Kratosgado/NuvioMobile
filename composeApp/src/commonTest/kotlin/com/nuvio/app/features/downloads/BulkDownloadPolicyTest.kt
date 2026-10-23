@@ -228,7 +228,14 @@ class BulkDownloadPolicyTest {
 
 class DownloadedContentInfoTest {
 
-    private fun item(parentMetaId: String, season: Int?, episodeNumber: Int?, status: DownloadStatus) =
+    private fun item(
+        parentMetaId: String,
+        season: Int?,
+        episodeNumber: Int?,
+        status: DownloadStatus,
+        downloadedBytes: Long = 0L,
+        totalBytes: Long? = null,
+    ) =
         DownloadItem(
             id = "item-$parentMetaId-$season-$episodeNumber",
             contentType = "series",
@@ -243,6 +250,8 @@ class DownloadedContentInfoTest {
             sourceUrl = "https://example.com/file.mp4",
             fileName = "file.mp4",
             status = status,
+            downloadedBytes = downloadedBytes,
+            totalBytes = totalBytes,
             createdAtEpochMs = 0L,
             updatedAtEpochMs = 0L,
         )
@@ -272,5 +281,121 @@ class DownloadedContentInfoTest {
             seasonDownloadedCounts = mapOf(1 to 2, 2 to 0, 3 to 0),
         )
         assertEquals(setOf(1), fully)
+    }
+
+    @Test
+    fun tracksInProgressEpisodeAndMovieProgress() {
+        val info = DownloadedContentInfo.of(
+            parentMetaId = "tmdb:1",
+            items = listOf(
+                item("tmdb:1", 1, 1, DownloadStatus.Completed),
+                item("tmdb:1", 1, 2, DownloadStatus.Downloading, downloadedBytes = 50L, totalBytes = 100L),
+                item("tmdb:1", 2, 1, DownloadStatus.Paused, downloadedBytes = 10L, totalBytes = 100L),
+            ),
+        )
+        assertTrue(info.hasAnyInProgressContent)
+        assertTrue(info.isEpisodeDownloaded(1, 1))
+        // Completed episode is not reported as downloading.
+        assertEquals(null, info.episodeDownloadProgress(1, 1))
+        assertEquals(0.5f, info.episodeDownloadProgress(1, 2))
+        assertEquals(0.1f, info.episodeDownloadProgress(2, 1))
+        assertEquals(1, info.seasonDownloadingCounts[1])
+        assertEquals(1, info.seasonDownloadingCounts[2])
+    }
+
+    @Test
+    fun reportsMovieInProgressOnlyWhenNotCompleted() {
+        val downloading = DownloadedContentInfo.of(
+            parentMetaId = "tmdb:9",
+            items = listOf(
+                item("tmdb:9", null, null, DownloadStatus.Downloading, downloadedBytes = 25L, totalBytes = 100L),
+            ),
+        )
+        assertEquals(0.25f, downloading.movieDownloadProgress)
+        assertFalse(downloading.movieDownloaded)
+
+        val completed = DownloadedContentInfo.of(
+            parentMetaId = "tmdb:9",
+            items = listOf(
+                item("tmdb:9", null, null, DownloadStatus.Completed),
+            ),
+        )
+        assertEquals(null, completed.movieDownloadProgress)
+        assertTrue(completed.movieDownloaded)
+    }
+}
+
+class PosterDownloadStateTest {
+
+    private fun item(
+        parentMetaId: String,
+        status: DownloadStatus,
+        season: Int? = null,
+        episodeNumber: Int? = null,
+        downloadedBytes: Long = 0L,
+        totalBytes: Long? = null,
+    ) =
+        DownloadItem(
+            id = "item-$parentMetaId-$season-$episodeNumber-$status",
+            contentType = "movie",
+            parentMetaId = parentMetaId,
+            parentMetaType = "movie",
+            videoId = "video-$season-$episodeNumber",
+            title = "Thing",
+            seasonNumber = season,
+            episodeNumber = episodeNumber,
+            streamTitle = "stream",
+            providerName = "provider",
+            sourceUrl = "https://example.com/file.mp4",
+            fileName = "file.mp4",
+            status = status,
+            downloadedBytes = downloadedBytes,
+            totalBytes = totalBytes,
+            createdAtEpochMs = 0L,
+            updatedAtEpochMs = 0L,
+        )
+
+    @Test
+    fun noneWhenNoDownloads() {
+        assertEquals(
+            PosterDownloadStatus.None,
+            PosterDownloadState.of("tmdb:1", emptyList()).status,
+        )
+    }
+
+    @Test
+    fun downloadingTakesPriorityAndAveragesProgress() {
+        val state = PosterDownloadState.of(
+            metaId = "tmdb:1",
+            items = listOf(
+                item("tmdb:1", DownloadStatus.Completed, season = 1, episodeNumber = 1),
+                item("tmdb:1", DownloadStatus.Downloading, season = 1, episodeNumber = 2, downloadedBytes = 20L, totalBytes = 100L),
+                item("tmdb:1", DownloadStatus.Downloading, season = 1, episodeNumber = 3, downloadedBytes = 60L, totalBytes = 100L),
+            ),
+        )
+        assertEquals(PosterDownloadStatus.Downloading, state.status)
+        assertEquals(0.4f, state.progress)
+    }
+
+    @Test
+    fun downloadedWhenOnlyCompleted() {
+        val state = PosterDownloadState.of(
+            metaId = "tmdb:1",
+            items = listOf(item("tmdb:1", DownloadStatus.Completed)),
+        )
+        assertEquals(PosterDownloadStatus.Downloaded, state.status)
+    }
+
+    @Test
+    fun buildPosterStatesGroupsByMetaId() {
+        val map = PosterDownloadState.buildPosterStates(
+            listOf(
+                item("tmdb:1", DownloadStatus.Completed),
+                item("tmdb:2", DownloadStatus.Downloading, downloadedBytes = 10L, totalBytes = 100L),
+            ),
+        )
+        assertEquals(PosterDownloadStatus.Downloaded, map["tmdb:1"]?.status)
+        assertEquals(PosterDownloadStatus.Downloading, map["tmdb:2"]?.status)
+        assertEquals(null, map["tmdb:3"])
     }
 }

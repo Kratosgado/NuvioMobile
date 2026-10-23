@@ -42,6 +42,7 @@ import nuvio.composeapp.generated.resources.bulk_banner_downloading
 import nuvio.composeapp.generated.resources.bulk_banner_done
 import nuvio.composeapp.generated.resources.bulk_banner_probing
 import nuvio.composeapp.generated.resources.download_badge_completed
+import nuvio.composeapp.generated.resources.download_badge_downloading
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -279,6 +280,42 @@ fun NuvioDownloadedBadge(
             contentDescription = stringResource(Res.string.download_badge_completed),
             tint = MaterialTheme.colorScheme.onPrimary,
             modifier = Modifier.size(size * 0.6f),
+        )
+    }
+}
+
+/**
+ * Small circular "downloading" mark: a determinate progress ring wrapped around a download glyph,
+ * matching [NuvioDownloadedBadge] footprint so the two can swap in place.
+ *
+ * @param progress fraction in [0f, 1f]; values outside the range are coerced.
+ */
+@Composable
+fun NuvioDownloadingBadge(
+    progress: Float,
+    modifier: Modifier = Modifier,
+    size: Dp = 20.dp,
+) {
+    val clamped = progress.coerceIn(0f, 1f)
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        CircularProgressIndicator(
+            progress = { clamped },
+            modifier = Modifier.size(size),
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = Color.Transparent,
+            strokeWidth = 2.dp,
+        )
+        Icon(
+            imageVector = Icons.Rounded.Download,
+            contentDescription = stringResource(Res.string.download_badge_downloading),
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(size * 0.5f),
         )
     }
 }

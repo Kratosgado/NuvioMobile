@@ -306,10 +306,40 @@ private fun rememberDownloadedBadgeLabel(meta: MetaDetails): String? {
     val info = remember(meta.id, items) {
         DownloadedContentInfo.of(meta.id, items)
     }
+    val isSeries = meta.type == "series"
+    val totalEpisodeCount = remember(meta.id, meta.videos) {
+        meta.videos.count { it.season != null && it.episode != null }
+    }
+
+    // Prefer a progress label while something is actively downloading, unless everything that could
+    // be downloaded is already complete.
+    if (info.hasAnyInProgressContent) {
+        when {
+            info.movieDownloadProgress != null -> {
+                val percent = (info.movieDownloadProgress * 100f).roundToInt().coerceIn(0, 100)
+                return stringResource(Res.string.download_badge_downloading_percent, percent)
+            }
+            isSeries && info.downloadingEpisodeProgress.isNotEmpty() -> {
+                val downloadedCount = info.downloadedEpisodeKeys.size
+                val downloadingCount = info.downloadingEpisodeProgress.size
+                val targetCount = (downloadedCount + downloadingCount)
+                    .let { if (totalEpisodeCount > 0) minOf(it, totalEpisodeCount) else it }
+                return if (targetCount > 0) {
+                    stringResource(
+                        Res.string.download_badge_downloading_progress,
+                        downloadedCount,
+                        targetCount,
+                    )
+                } else {
+                    stringResource(Res.string.download_badge_downloading)
+                }
+            }
+        }
+    }
+
     return when {
         info.movieDownloaded -> stringResource(Res.string.download_badge_completed)
-        meta.type == "series" && info.downloadedEpisodeKeys.isNotEmpty() -> {
-            val totalEpisodeCount = meta.videos.count { it.season != null && it.episode != null }
+        isSeries && info.downloadedEpisodeKeys.isNotEmpty() -> {
             val downloadedCount = info.downloadedEpisodeKeys.size
             if (totalEpisodeCount > 0) {
                 if (downloadedCount >= totalEpisodeCount) {

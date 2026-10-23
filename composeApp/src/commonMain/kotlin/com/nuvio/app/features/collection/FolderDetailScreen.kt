@@ -61,9 +61,12 @@ import com.nuvio.app.features.home.PosterShape
 import com.nuvio.app.features.home.canOpenCatalog
 import com.nuvio.app.features.home.stableKey
 import com.nuvio.app.features.home.components.HomeCatalogRowSection
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.PosterDownloadState
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.navigation.LocalUseNativeNavigation
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
@@ -271,6 +274,10 @@ private fun TabbedGridContent(
 
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val columns = remember(maxWidth) { folderDetailGridColumnsForWidth(maxWidth) }
+            val downloadsUiState by DownloadsRepository.uiState.collectAsStateWithLifecycle()
+            val downloadStates = remember(downloadsUiState.items) {
+                PosterDownloadState.buildPosterStates(downloadsUiState.items)
+            }
 
             when {
                 selectedTab.isLoading && selectedTab.items.isEmpty() -> LoadingIndicator()
@@ -304,6 +311,7 @@ private fun TabbedGridContent(
                                     watchedKeys = watchedKeys,
                                     item = item,
                                 ),
+                                downloadState = downloadStates[item.id] ?: PosterDownloadState.None,
                                 onClick = { onPosterClick(item) },
                             )
                         }

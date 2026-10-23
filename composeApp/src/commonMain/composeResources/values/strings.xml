@@ -1920,6 +1920,9 @@
     <string name="bulk_resolution_none_found">No downloadable streams were found for these episodes.</string>
     <string name="download_badge_completed">Available offline</string>
     <string name="download_badge_progress">%1$d/%2$d downloaded</string>
+    <string name="download_badge_downloading">Downloading…</string>
+    <string name="download_badge_downloading_percent">Downloading %1$d%%</string>
+    <string name="download_badge_downloading_progress">Downloading %1$d/%2$d</string>
     <string name="downloads_error_empty_body">Empty response body</string>
     <string name="downloads_error_finalize_failed">Failed to finalize download file</string>
     <string name="downloads_error_http_failed">Request failed with HTTP %1$d</string>

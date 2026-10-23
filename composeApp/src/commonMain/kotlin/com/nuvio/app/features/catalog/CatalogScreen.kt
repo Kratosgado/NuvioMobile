@@ -52,6 +52,9 @@ import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
+import com.nuvio.app.core.ui.NuvioPosterDownloadOverlay
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.PosterDownloadState
 import com.nuvio.app.core.ui.SkeletonPoster
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
@@ -303,6 +306,10 @@ private fun CatalogPosterTile(
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
+    val downloadsUiState by DownloadsRepository.uiState.collectAsStateWithLifecycle()
+    val downloadState = remember(item.id, downloadsUiState.items) {
+        PosterDownloadState.of(item.id, downloadsUiState.items)
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -346,6 +353,7 @@ private fun CatalogPosterTile(
                 )
             }
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+            NuvioPosterDownloadOverlay(state = downloadState)
         }
         if (!hideLabels) {
             Text(

@@ -85,6 +85,7 @@ import com.nuvio.app.features.details.seasonSortKey
 import com.nuvio.app.features.downloads.DownloadedContentInfo
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.NuvioDownloadedBadge
+import com.nuvio.app.features.downloads.NuvioDownloadingBadge
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.application.WatchingState
@@ -238,6 +239,7 @@ fun DetailSeriesContent(
                             episodeRatingsVisibility = episodeRatingsVisibility,
                             blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                             downloadedEpisodeKeys = downloadedInfo.downloadedEpisodeKeys,
+                            downloadingEpisodeProgress = downloadedInfo.downloadingEpisodeProgress,
                             preferredEpisodeNumber = preferredEpisodeNumberForSeason(
                                 displayedSeasonNumber = seasonForContent,
                                 preferredSeasonNumber = preferredSeasonNumber,
@@ -272,6 +274,11 @@ fun DetailSeriesContent(
                                     isDownloaded = episode.season != null &&
                                         episode.episode != null &&
                                         downloadedInfo.isEpisodeDownloaded(episode.season, episode.episode),
+                                    downloadProgress = if (episode.season != null && episode.episode != null) {
+                                        downloadedInfo.episodeDownloadProgress(episode.season, episode.episode)
+                                    } else {
+                                        null
+                                    },
                                     episodeRatingsVisibility = episodeRatingsVisibility,
                                     blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                                     sizing = sizing,
@@ -334,6 +341,7 @@ internal fun DetailSeriesListEpisode(
     episodeRatingsVisibility: EpisodeRatingsVisibility,
     blurUnwatchedEpisodes: Boolean,
     downloadedEpisodeKeys: Set<String> = emptySet(),
+    downloadingEpisodeProgress: Map<String, Float> = emptyMap(),
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
     modifier: Modifier = Modifier,
@@ -346,6 +354,11 @@ internal fun DetailSeriesListEpisode(
             episodeNumber = episode.episode,
             fallbackVideoId = episode.id,
         )
+        val episodeKey = if (episode.season != null && episode.episode != null) {
+            "${episode.season}|${episode.episode}"
+        } else {
+            null
+        }
         EpisodeListCard(
             video = episode,
             fallbackImage = meta.background ?: meta.poster,
@@ -358,9 +371,8 @@ internal fun DetailSeriesListEpisode(
                     metaId = meta.id,
                     episode = episode,
                 ),
-            isDownloaded = episode.season != null &&
-                episode.episode != null &&
-                "${episode.season}|${episode.episode}" in downloadedEpisodeKeys,
+            isDownloaded = episodeKey != null && episodeKey in downloadedEpisodeKeys,
+            downloadProgress = episodeKey?.let { downloadingEpisodeProgress[it] },
             episodeRatingsVisibility = episodeRatingsVisibility,
             blurUnwatchedEpisodes = blurUnwatchedEpisodes,
             sizing = sizing,
@@ -757,6 +769,7 @@ private fun EpisodeHorizontalRow(
     episodeRatingsVisibility: EpisodeRatingsVisibility,
     blurUnwatchedEpisodes: Boolean,
     downloadedEpisodeKeys: Set<String> = emptySet(),
+    downloadingEpisodeProgress: Map<String, Float> = emptyMap(),
     preferredEpisodeNumber: Int? = null,
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
@@ -817,6 +830,11 @@ private fun EpisodeHorizontalRow(
                 isDownloaded = episode.season != null &&
                     episode.episode != null &&
                     "${episode.season}|${episode.episode}" in downloadedEpisodeKeys,
+                downloadProgress = if (episode.season != null && episode.episode != null) {
+                    downloadingEpisodeProgress["${episode.season}|${episode.episode}"]
+                } else {
+                    null
+                },
                 episodeRatingsVisibility = episodeRatingsVisibility,
                 blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                 metrics = rowMetrics,
@@ -839,6 +857,7 @@ private fun EpisodeHorizontalCard(
     episodeRatingsVisibility: EpisodeRatingsVisibility,
     blurUnwatchedEpisodes: Boolean,
     metrics: EpisodeHorizontalCardMetrics,
+    downloadProgress: Float? = null,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
 ) {
@@ -910,7 +929,17 @@ private fun EpisodeHorizontalCard(
                 .align(Alignment.TopEnd)
                 .padding(metrics.contentPadding),
         )
-        if (isDownloaded) {
+        if (downloadProgress != null) {
+            NuvioDownloadingBadge(
+                progress = downloadProgress,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(
+                        top = metrics.contentPadding + if (isWatched) 26.dp else 0.dp,
+                        end = metrics.contentPadding,
+                    ),
+            )
+        } else if (isDownloaded) {
             NuvioDownloadedBadge(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -1237,6 +1266,7 @@ private fun EpisodeListCard(
     blurUnwatchedEpisodes: Boolean,
     sizing: SeriesContentSizing,
     modifier: Modifier = Modifier,
+    downloadProgress: Float? = null,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
 ) {
@@ -1311,7 +1341,17 @@ private fun EpisodeListCard(
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
                 )
-                if (isDownloaded) {
+                if (downloadProgress != null) {
+                    NuvioDownloadingBadge(
+                        progress = downloadProgress,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(
+                                top = 8.dp + if (isWatched) 26.dp else 0.dp,
+                                end = 8.dp,
+                            ),
+                    )
+                } else if (isDownloaded) {
                     NuvioDownloadedBadge(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
