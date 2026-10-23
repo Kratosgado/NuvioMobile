@@ -155,7 +155,24 @@ internal class AndroidDownloadScheduler(val context: Context) {
             currentCoroutineContext().ensureActive()
             if (!isActive(transfer)) return@withLock false
             var lastProgressAt = 0L
-            val partial = if (destination.isFile) destination else transferAndroidDownload(
+            val partial = if (destination.isFile) {
+                destination
+            } else if (transfer.item.hlsSegmentUrls != null) {
+                transferAndroidHlsDownload(
+                    item = transfer.item,
+                    directory = directory,
+                    client = client,
+                    onProgress = { bytes, total ->
+                        val now = SystemClock.elapsedRealtime()
+                        if (now - lastProgressAt >= 1_000L || bytes == total) {
+                            lastProgressAt = now
+                            updateActive(transfer) {
+                                it.copy(item = it.item.copy(downloadedBytes = bytes, totalBytes = total))
+                            }?.let(onProgress)
+                        }
+                    },
+                )
+            } else transferAndroidDownload(
                 item = transfer.item,
                 directory = directory,
                 validator = transfer.validator,

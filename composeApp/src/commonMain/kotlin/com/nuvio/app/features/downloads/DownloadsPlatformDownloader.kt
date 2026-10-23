@@ -6,6 +6,9 @@ internal data class DownloadPlatformRequest(
     val sourceUrl: String get() = item.sourceUrl
     val sourceHeaders: Map<String, String> get() = item.sourceHeaders
     val destinationFileName: String get() = item.fileName
+
+    /** Non-null when this is an HLS download: ordered media segment URLs to fetch and concatenate. */
+    val hlsSegmentUrls: List<String>? get() = item.hlsSegmentUrls?.takeIf { it.isNotEmpty() }
 }
 
 internal interface DownloadsTaskHandle {

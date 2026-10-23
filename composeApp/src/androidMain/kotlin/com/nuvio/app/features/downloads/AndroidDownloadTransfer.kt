@@ -121,3 +121,96 @@ internal fun parseDownloadContentRange(value: String): Pair<Long, Long?>? {
     if (end < start || (total != null && end >= total)) return null
     return start to total
 }
+
+/**
+ * Downloads an HLS stream by fetching [DownloadItem.hlsSegmentUrls] in order and concatenating them
+ * into a single `.part` file, then returns that file for the caller to finalize.
+ *
+ * Segments are fetched sequentially and appended. There is no per-segment resume: a paused/retried
+ * HLS download restarts from the first segment (the `.part` is truncated), trading some bandwidth
+ * for simplicity and correctness. Progress is reported as a byte count with an estimated total
+ * derived from the average segment size so the UI shows a moving, bounded bar.
+ */
+internal suspend fun transferAndroidHlsDownload(
+    item: DownloadItem,
+    directory: File,
+    client: OkHttpClient = downloadHttpClient,
+    onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
+): File = coroutineScope {
+    val segmentUrls = item.hlsSegmentUrls.orEmpty()
+    require(segmentUrls.isNotEmpty()) { "HLS download has no segments" }
+    require(File(item.fileName).name == item.fileName && item.fileName.isNotBlank())
+    check(directory.isDirectory || directory.mkdirs()) { "Cannot create downloads directory" }
+
+    val activeCall = AtomicReference<Call?>()
+    val transfer = async(Dispatchers.IO) {
+        try {
+            val partial = File(directory, "${item.fileName}.part")
+            // Fresh start each run: segment concatenation cannot resume mid-stream reliably.
+            if (partial.exists()) partial.delete()
+
+            var downloaded = 0L
+            val segmentCount = segmentUrls.size
+            onProgress(0L, null)
+
+            FileOutputStream(partial, false).use { output ->
+                segmentUrls.forEachIndexed { index, segmentUrl ->
+                    ensureActive()
+                    val request = Request.Builder().url(segmentUrl).apply {
+                        item.sourceHeaders.forEach { (key, value) ->
+                            if (!key.equals("Range", true) && !key.equals("If-Range", true) &&
+                                !key.equals("Accept-Encoding", true)
+                            ) {
+                                header(key, value)
+                            }
+                        }
+                        header("Accept-Encoding", "identity")
+                    }.build()
+                    val call = client.newCall(request)
+                    activeCall.set(call)
+                    ensureActive()
+                    call.execute().use { response ->
+                        if (!response.isSuccessful) throw DownloadHttpException(response.code)
+                        val body = response.body ?: throw IOException("Segment response is empty")
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(64 * 1024)
+                            while (true) {
+                                ensureActive()
+                                val size = input.read(buffer)
+                                if (size == -1) break
+                                output.write(buffer, 0, size)
+                                downloaded += size
+                                // Estimate total from the running average segment size.
+                                val segmentsDone = index // segments fully written before this one
+                                val estimatedTotal = if (segmentsDone > 0) {
+                                    downloaded / segmentsDone * segmentCount
+                                } else {
+                                    null
+                                }
+                                onProgress(downloaded, estimatedTotal?.takeIf { it >= downloaded })
+                            }
+                        }
+                    }
+                    // Report a segment-boundary progress tick with a sharper total estimate.
+                    val completedSegments = index + 1
+                    val estimatedTotal = downloaded / completedSegments * segmentCount
+                    onProgress(downloaded, estimatedTotal.takeIf { it >= downloaded })
+                }
+                output.fd.sync()
+            }
+
+            ensureActive()
+            // Final: the true total is now known.
+            onProgress(downloaded, downloaded)
+            partial
+        } catch (error: Exception) {
+            ensureActive()
+            throw error
+        }
+    }
+    try {
+        transfer.await()
+    } finally {
+        activeCall.get()?.cancel()
+    }
+}

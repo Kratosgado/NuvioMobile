@@ -48,6 +48,11 @@ data class DownloadItem(
     val status: DownloadStatus,
     val downloadedBytes: Long = 0L,
     val totalBytes: Long? = null,
+    /**
+     * When non-null, this is an HLS download: the ordered list of media segment URLs to fetch and
+     * concatenate into a single file at [fileName]. When null, [sourceUrl] is a direct file.
+     */
+    val hlsSegmentUrls: List<String>? = null,
     val errorMessage: String? = null,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,

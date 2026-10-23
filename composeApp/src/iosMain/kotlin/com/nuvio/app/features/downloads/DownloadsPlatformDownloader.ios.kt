@@ -84,6 +84,33 @@ internal actual object DownloadsPlatformDownloader {
 
             try {
                 DownloadSubtitles.prepare(request.item, NSURL.fileURLWithPath(destinationPath).absoluteString!!)
+
+                val segmentUrls = request.hlsSegmentUrls
+                if (segmentUrls != null) {
+                    // HLS: fetch and concatenate segments into the .part file, then finalize.
+                    performHlsDownload(
+                        request = request,
+                        segmentUrls = segmentUrls,
+                        tempPath = tempPath,
+                        handle = handle,
+                        onProgress = onProgress,
+                    )
+
+                    removePathIfExists(destinationPath)
+                    val movedHls = NSFileManager.defaultManager.moveItemAtPath(
+                        srcPath = tempPath,
+                        toPath = destinationPath,
+                        error = null,
+                    )
+                    if (!movedHls) {
+                        error(runBlocking { getString(Res.string.downloads_error_finalize_file_failed) })
+                    }
+                    val hlsUri = NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath"
+                    val hlsSize = fileSizeOrNull(destinationPath)
+                    onSuccess(hlsUri, hlsSize)
+                    return@launch
+                }
+
                 var resumeFromBytes = fileSizeOrNull(tempPath)?.coerceAtLeast(0L) ?: 0L
 
                 var attemptedRangeRequest = resumeFromBytes > 0L
@@ -391,6 +418,138 @@ private fun NSURLResponse?.toDownloadResult(): IosDownloadResult {
             ?.toLongOrNull()
             ?.takeIf { it > 0L },
     )
+}
+
+/**
+ * Fetches [segmentUrls] in order and concatenates them into the file at [tempPath]. Each segment is
+ * streamed and appended; the `.part` is truncated at the start so a paused/retried HLS download
+ * restarts from the first segment. Progress is reported as a byte count with an estimated total
+ * derived from the average segment size. Throws on HTTP or file errors.
+ */
+@OptIn(ExperimentalForeignApi::class)
+private suspend fun performHlsDownload(
+    request: DownloadPlatformRequest,
+    segmentUrls: List<String>,
+    tempPath: String,
+    handle: IosDownloadsTaskHandle,
+    onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
+) {
+    removePathIfExists(tempPath)
+    val outputFile = fopen(tempPath, "wb")
+        ?: error(runBlocking { getString(Res.string.downloads_error_open_partial_file_failed) })
+
+    var downloaded = 0L
+    val segmentCount = segmentUrls.size
+    onProgress(0L, null)
+
+    try {
+        segmentUrls.forEachIndexed { index, segmentUrl ->
+            val delegate = IosHlsSegmentDelegate(
+                outputFile = outputFile,
+                onBytesWritten = { written ->
+                    downloaded += written
+                    val completed = index // fully-written segments before this one
+                    val estimatedTotal = if (completed > 0) downloaded / completed * segmentCount else null
+                    onProgress(downloaded, estimatedTotal?.takeIf { it >= downloaded })
+                },
+            )
+            val configuration = NSURLSessionConfiguration.defaultSessionConfiguration().apply {
+                timeoutIntervalForRequest = DOWNLOAD_REQUEST_TIMEOUT_SECONDS
+                timeoutIntervalForResource = DOWNLOAD_RESOURCE_TIMEOUT_SECONDS
+                waitsForConnectivity = true
+                allowsCellularAccess = true
+            }
+            val session = NSURLSession.sessionWithConfiguration(
+                configuration = configuration,
+                delegate = delegate,
+                delegateQueue = NSOperationQueue().apply { maxConcurrentOperationCount = 1 },
+            )
+            val url = NSURL(string = segmentUrl)
+            val nativeRequest = NSMutableURLRequest(
+                uRL = url,
+                cachePolicy = NSURLRequestReloadIgnoringLocalCacheData,
+                timeoutInterval = DOWNLOAD_REQUEST_TIMEOUT_SECONDS,
+            )
+            nativeRequest.setHTTPMethod("GET")
+            request.sourceHeaders.forEach { (key, value) ->
+                if (!key.equals("Range", true) && !key.equals("Accept-Encoding", true)) {
+                    nativeRequest.setValue(value, forHTTPHeaderField = key)
+                }
+            }
+            val task = session.dataTaskWithRequest(nativeRequest)
+            handle.attach(task, session)
+            task.resume()
+            try {
+                val statusCode = delegate.awaitCompletion()
+                if (statusCode !in 200..299) {
+                    error(runBlocking { getString(Res.string.network_request_failed_http, statusCode) })
+                }
+            } finally {
+                session.finishTasksAndInvalidate()
+            }
+        }
+        fflush(outputFile)
+    } finally {
+        fclose(outputFile)
+    }
+
+    onProgress(downloaded, downloaded)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private class IosHlsSegmentDelegate(
+    private val outputFile: CPointer<FILE>,
+    private val onBytesWritten: (Long) -> Unit,
+) : NSObject(), NSURLSessionDataDelegateProtocol {
+    private val completion = CompletableDeferred<Int>()
+    private var statusCode = 200
+    private var fileError: Throwable? = null
+
+    suspend fun awaitCompletion(): Int = completion.await()
+
+    override fun URLSession(
+        session: NSURLSession,
+        dataTask: NSURLSessionDataTask,
+        didReceiveResponse: NSURLResponse,
+        completionHandler: (Long) -> Unit,
+    ) {
+        statusCode = (didReceiveResponse as? NSHTTPURLResponse)?.statusCode?.toInt() ?: 200
+        // NSURLSessionResponseAllow = 1
+        completionHandler(1L)
+    }
+
+    override fun URLSession(
+        session: NSURLSession,
+        dataTask: NSURLSessionDataTask,
+        didReceiveData: NSData,
+    ) {
+        if (fileError != null || statusCode !in 200..299) return
+        val bytesToWrite = didReceiveData.length.toLong()
+        if (bytesToWrite <= 0L) return
+        val wrote = fwrite(didReceiveData.bytes, 1.convert(), bytesToWrite.convert(), outputFile).toLong()
+        if (wrote != bytesToWrite) {
+            fileError = IllegalStateException(runBlocking { getString(Res.string.downloads_error_write_partial_file_failed) })
+            return
+        }
+        onBytesWritten(bytesToWrite)
+    }
+
+    override fun URLSession(
+        session: NSURLSession,
+        task: NSURLSessionTask,
+        didCompleteWithError: NSError?,
+    ) {
+        if (didCompleteWithError != null) {
+            completion.completeExceptionally(IllegalStateException(didCompleteWithError.localizedDescription))
+            return
+        }
+        val error = fileError
+        if (error != null) {
+            completion.completeExceptionally(error)
+            return
+        }
+        completion.complete(statusCode)
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)

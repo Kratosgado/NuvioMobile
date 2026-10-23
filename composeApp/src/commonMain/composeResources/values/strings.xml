@@ -1906,6 +1906,9 @@
     <string name="downloads_enqueue_replaced">Replaced previous download</string>
     <string name="downloads_enqueue_started">Download started</string>
     <string name="downloads_enqueue_unsupported_format">Unsupported stream format for downloads</string>
+    <string name="downloads_error_hls_encrypted">This stream is encrypted and can\'t be downloaded</string>
+    <string name="downloads_error_hls_needs_muxing">This stream\'s audio and video are separate and can\'t be downloaded</string>
+    <string name="downloads_error_hls_unsupported">This streaming format can\'t be downloaded</string>
     <string name="bulk_download_season_action">%1$s — download %2$d episodes</string>
     <string name="bulk_download_all_seasons_action">Download every season (%1$d episodes across all seasons)</string>
     <string name="bulk_banner_downloading">Downloading %1$s • %2$d/%3$d</string>

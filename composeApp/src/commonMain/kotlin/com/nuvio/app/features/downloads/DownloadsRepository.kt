@@ -2,6 +2,11 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +27,8 @@ object DownloadsRepository {
     val hasUnseenCompleted: StateFlow<Boolean> = _hasUnseenCompleted.asStateFlow()
 
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
+    private val hlsResolveJobs = mutableMapOf<String, Job>()
+    private val resolveScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var hasLoaded = false
     private var nextDownloadOrdinal = 0L
 
@@ -41,6 +48,8 @@ object DownloadsRepository {
     fun clearLocalState() {
         activeHandles.values.forEach(DownloadsTaskHandle::cancel)
         activeHandles.clear()
+        hlsResolveJobs.values.forEach(Job::cancel)
+        hlsResolveJobs.clear()
         hasLoaded = false
         _hasUnseenCompleted.value = false
         _uiState.value = DownloadsUiState()
@@ -148,6 +157,7 @@ object DownloadsRepository {
         if (existing != null) {
             replacedExisting = true
             activeHandles.remove(existing.id)?.cancel()
+            hlsResolveJobs.remove(existing.id)?.cancel()
             DownloadsPlatformDownloader.removeFile(playableLocalFileUri(existing) ?: existing.localFileUri)
             DownloadsPlatformDownloader.removePartialFile(existing.fileName)
             currentItems.removeAll { it.id == existing.id }
@@ -235,6 +245,7 @@ object DownloadsRepository {
         if (item.status != DownloadStatus.Downloading) return
 
         activeHandles.remove(downloadId)?.cancel()
+        hlsResolveJobs.remove(downloadId)?.cancel()
         mutateItem(downloadId) { current ->
             current.copy(
                 status = DownloadStatus.Paused,
@@ -277,6 +288,7 @@ object DownloadsRepository {
         if (!hasLoaded) return
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
         activeHandles.remove(downloadId)?.cancel()
+        hlsResolveJobs.remove(downloadId)?.cancel()
         val restored = DownloadsPlatformDownloader.restoreItem(item)
         replaceItem(restored)
         persist()
@@ -288,6 +300,7 @@ object DownloadsRepository {
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
 
         activeHandles.remove(downloadId)?.cancel()
+        hlsResolveJobs.remove(downloadId)?.cancel()
         DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
         DownloadsPlatformDownloader.removePartialFile(item.fileName)
 
@@ -327,6 +340,13 @@ object DownloadsRepository {
     }
 
     private fun startDownload(item: DownloadItem) {
+        // HLS source that has not been resolved into segments yet: resolve the manifest first, then
+        // either restart with the segment list or mark the item failed with a clear reason.
+        if (item.hlsSegmentUrls == null && item.sourceUrl.isHlsUrl()) {
+            resolveHlsThenStart(item)
+            return
+        }
+
         val request = DownloadPlatformRequest(item)
 
         val handle = DownloadsPlatformDownloader.start(
@@ -387,6 +407,76 @@ object DownloadsRepository {
         )
 
         activeHandles[item.id] = handle
+    }
+
+    /**
+     * Fetches and parses the HLS manifest for [item], then either restarts the download with the
+     * resolved segment list or marks the item failed with a user-facing reason. Runs on
+     * [resolveScope]; the job is tracked so pause/cancel/remove can stop it.
+     */
+    private fun resolveHlsThenStart(item: DownloadItem) {
+        hlsResolveJobs.remove(item.id)?.cancel()
+        val job = resolveScope.launch {
+            val resolution = HlsDownloadResolver.resolve(
+                url = item.sourceUrl,
+                headers = item.sourceHeaders,
+                maxHeight = 0,
+            )
+            hlsResolveJobs.remove(item.id)
+            // Bail if the item was paused/removed/replaced while resolving.
+            val current = _uiState.value.items.firstOrNull { it.id == item.id } ?: return@launch
+            if (current.status != DownloadStatus.Downloading) return@launch
+
+            when (resolution) {
+                is HlsDownloadResolver.HlsDownloadResolution.Supported -> {
+                    val updated = current.copy(
+                        hlsSegmentUrls = resolution.segmentUrls,
+                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                    )
+                    mutateItem(item.id) { updated }
+                    persist()
+                    startDownload(updated)
+                }
+
+                is HlsDownloadResolver.HlsDownloadResolution.Unsupported -> {
+                    failItem(item.id, hlsUnsupportedMessage(resolution.reason))
+                }
+
+                is HlsDownloadResolver.HlsDownloadResolution.Failed -> {
+                    failItem(item.id, resolution.message)
+                }
+            }
+        }
+        hlsResolveJobs[item.id] = job
+    }
+
+    private fun failItem(downloadId: String, message: String) {
+        activeHandles.remove(downloadId)
+        mutateItem(downloadId) { current ->
+            if (current.status != DownloadStatus.Downloading) {
+                current
+            } else {
+                current.copy(
+                    status = DownloadStatus.Failed,
+                    errorMessage = message.ifBlank { runBlocking { getString(Res.string.download_failed) } },
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+        }
+    }
+
+    private fun hlsUnsupportedMessage(reason: HlsManifest.UnsupportedReason): String = runBlocking {
+        when (reason) {
+            HlsManifest.UnsupportedReason.Encrypted ->
+                getString(Res.string.downloads_error_hls_encrypted)
+            HlsManifest.UnsupportedReason.SeparateAudioOrSubtitles ->
+                getString(Res.string.downloads_error_hls_needs_muxing)
+            HlsManifest.UnsupportedReason.FragmentedMp4,
+            HlsManifest.UnsupportedReason.NoMuxedVariant,
+            HlsManifest.UnsupportedReason.NoSegments,
+            HlsManifest.UnsupportedReason.NotAPlaylist ->
+                getString(Res.string.downloads_error_hls_unsupported)
+        }
     }
 
     private fun mutateItem(downloadId: String, transform: (DownloadItem) -> DownloadItem) {
@@ -558,7 +648,9 @@ private fun buildFileName(
         title.ifBlank { fallbackTitle }
     }
 
-    val extension = sourceUrl.fileExtensionFromUrl()
+    // HLS playlists are concatenated into a single MPEG-TS file, so force a .ts extension rather
+    // than inheriting the playlist's .m3u8 suffix.
+    val extension = if (sourceUrl.isHlsUrl()) "ts" else sourceUrl.fileExtensionFromUrl()
     return buildString {
         append(baseTitle.sanitizeFileName().ifBlank { "download" }.take(92))
         append('_')
@@ -587,8 +679,15 @@ private fun String.fileExtensionFromUrl(): String {
 internal fun String.isSupportedDownloadUrl(): Boolean {
     val normalized = trim().lowercase()
     if (normalized.startsWith("magnet:")) return false
-    if (normalized.endsWith(".m3u8") || normalized.contains(".m3u8?")) return false
     if (normalized.endsWith(".mpd") || normalized.contains(".mpd?")) return false
     if (normalized.endsWith(".torrent") || normalized.contains(".torrent?")) return false
+    // HLS (.m3u8) is allowed through here but requires manifest resolution before it can actually
+    // be downloaded; see HlsDownloadResolver. DASH (.mpd) and torrents remain unsupported.
     return normalized.startsWith("http://") || normalized.startsWith("https://")
+}
+
+/** True when [this] looks like an HLS playlist URL that needs manifest resolution before download. */
+internal fun String.isHlsUrl(): Boolean {
+    val normalized = trim().lowercase()
+    return normalized.endsWith(".m3u8") || normalized.contains(".m3u8?")
 }
